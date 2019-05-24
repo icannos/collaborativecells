@@ -16,9 +16,9 @@ from time import time
 
 
 
-episodes = 50
-episode_duration = 150
-steps = 32
+episodes = 300
+episode_duration = 127
+steps = 16
 
 
 # load scenario from script
@@ -34,7 +34,7 @@ action_space_n = env.action_space
 observation_space_n = env.observation_space
 
 
-agents = [simpleAgent(input_shape=observation_space_n[i].shape, action_space=action_space_n[i].n)
+agents = [simpleAgent(input_shape=observation_space_n[i].shape, action_space=action_space_n[i].n, batch_size=3)
           for i in range(nb_agent)]
 
 for i in range(episodes):
@@ -71,6 +71,8 @@ for i in range(episodes):
 
         next_state_n, reward_n, done, info = env.step(action_n)
 
+        reward_n = [10 if r > -1 else r for r in reward_n]
+
         next_state_n = [np.reshape(next_state_n[i], (1, observation_space_n[i].shape[0])) for i in range(nb_agent)]
 
         for i in range(nb_agent):
@@ -84,8 +86,13 @@ for i in range(episodes):
                 seq_n[i] = [(state_n[i], seq_action_n[i], reward_n[i], next_state_n[i], done[i])]
 
         step+=1
+
+        state_n = next_state_n
         print(reward_n)
 
+
+for i, a in enumerate(agents):
+    a.dump("agent-" + str(i)+".model")
 
 
 
