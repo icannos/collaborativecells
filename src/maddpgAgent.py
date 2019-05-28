@@ -24,14 +24,11 @@ class AbstractMaddpgAgent:
 
         self.nb_agent = len(observation_shapes)
 
-        self.critic = None
-        self.policy = None
-        self.target_policy = None
+        self.critic = self.mk_critic_model()
+        self.policy = self.mk_policy_model()
+        self.target_policy = self.mk_policy_model()
 
-        self._critic_gradient = None
-        self._policy_jacobian = None
-
-        self.policy_opti_ops = None
+        self.optimize_policy = None
 
         self.update_target = [tf.assign(t, tau * e + (1 - tau) * t)
                               for t, e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
