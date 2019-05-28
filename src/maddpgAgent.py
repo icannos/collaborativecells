@@ -136,39 +136,47 @@ class AbstractMaddpgTrainer:
 
                 state = next_state
 
-    def update_critic(self, sample):
+                for i in range(self.nb_agent):
+                    sample = self.buffer.sample()
+                    self.train_step(sample, i)
 
-        y = [[] for i in range(self.nb_agent)]
-        X = [[] for i in range(self.nb_agent)]
+                self.update_targets()
+
+
+    def train_step(self, sample, i):
+        y = []
+        X = []
 
         for state, actions, rewards, next_state in sample:
 
             # First we build the target value y:
-            actions = []
+            actionsp = []
 
             for k in range(self.nb_agent):
                 agent = self.agents[k]
                 observation = agent.watch(state, k)
                 action = agent.target_action(observation)
 
-                actions.append(action)
+                actionsp.append(action)
 
+            y.append(rewards[i] + self.gamma * self.agents[i].Q(next_state, actionsp))
+            X.append(np.asarray([state, actions]))
+
+
+        self.agents[i].critic.train_on_batch(X, y)
+
+        states = [[sample[j][0][l] for j in range(len(sample))] for l in range(self.nb_agent)]
+        actions = [[sample[j][1][l] for j in range(len(sample))] for l in range(self.nb_agent)]
+
+        s_in = {self.agents[i].critic.inputs[k]: states[k] for k in range(self.nb_agent)}
+        a_in = {self.agents[i].critic.inputs[k]: actions[k - self.nb_agent]
+                for k in range(self.nb_agent, 2 * self.nb_agent)}
+
+        with K.get_session() as s:
+            _ = s.run([self.agents[i].optimize_policy], feed_dict={**s_in, **a_in})
+
+    def update_targets(self):
+        with K.get_session() as s:
             for i in range(self.nb_agent):
-                y[i].append(rewards[i] + self.gamma * self.agents[i].Q(next_state, actions))
-                X[i].append(np.asarray([state, actions]))
-
-        for i in range(self.nb_agent):
-            self.agents[i].critic.train_on_batch(X[i], y[i])
-
-    def update_policies(self, sample):
-        states = [[sample[j][0][i] for j in range(len(sample))]  for i in range(self.nb_agent)]
-        actions = [[sample[j][1][i] for j in range(len(sample))] for i in range(self.nb_agent)]
-
-        for i in range(self.nb_agent):
-            s_in = {self.agents[i].critic.inputs[k]:states[k] for k in range(self.nb_agent)}
-            a_in = {self.agents[i].critic.inputs[k]:actions[k-self.nb_agent]
-                    for k in range(self.nb_agent, 2*self.nb_agent)}
-
-            with K.get_session() as s:
-                _ = s.run([self.agents[i].optimize_policy], feed_dict={**s_in, **a_in})
+                s.run(self.agents[i].update_target)
 
