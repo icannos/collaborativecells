@@ -25,28 +25,22 @@ M = Model(inputs=[i1, i2], outputs=output)
 
 M.compile(optimizer="adam", loss="mse")
 
-
 i1 = tf.placeholder("float32", shape=(None,100))
 i2 = tf.placeholder("float32", shape=(None, 100))
 
-tensor = M([i1,i2])
+tensor = M([M.inputs[0],i2])
 
 j = jacobian(tensor, M.trainable_weights)
 
-print(type(j))
-print(len(j))
+print(j)
+
 
 X1 = np.random.uniform(-5, 5, (10, 100))
 X2 = np.random.uniform(-5, 5, (10, 100))
 Y = np.random.uniform(-5, 5, (10, 100))
 
-a = tf.Variable(initial_value=0)
-b = tf.Variable(initial_value=1)
-c = tf.Variable(initial_value=3)
-
-
 
 with K.get_session() as s:
-    j = s.run([j], feed_dict={i1: X1, i2:X2})[0]
+    j = s.run([j], feed_dict={M.inputs[0]: X1, i2:X2})[0]
 
 

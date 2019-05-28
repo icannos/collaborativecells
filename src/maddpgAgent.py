@@ -11,28 +11,40 @@ import random
 
 class AbstractMaddpgAgent:
 
-    def __init__(self, agent_id, action_dim, observation_dim, learning_rate=0.01):
+    def __init__(self, agent_id, action_shapes, observation_shapes, learning_rate=0.01, tau=0.01):
+
+        if len(observation_shapes) != len(action_shapes):
+            raise ValueError
+
         self.agent_id = agent_id
         self.learning_rate = learning_rate
-        self.observation_dim = observation_dim
-        self.action_dim = action_dim
 
-        # Should be keras/tensorflow models (Support predict, train)
-        # Should be something, one day, maybe it will be something else, dont know yet
-        # Maybe it should be a something in between
+        self.observation_shapes = observation_shapes
+        self.action_shapes = action_shapes
+
+        self.nb_agent = len(observation_shapes)
+
         self.critic = None
         self.policy = None
-
-
-        # Private members
-        self._state_input = None
-        self._other_action_input = None
-        self._action_input = None
+        self.target_policy = None
 
         self._critic_gradient = None
         self._policy_jacobian = None
 
         self.policy_opti_ops = None
+
+        self.update_target = [tf.assign(t, tau * e + (1-tau) * t)
+                              for t,e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
+
+    def critic_inputs(self, stateoraction, agent):
+        idx = 0
+
+        if stateoraction == "action":
+            idx += self.nb_agent
+
+        idx += agent
+
+        return self.critic.inputs[idx]
 
     def mk_critic_model(self):
         raise NotImplemented
@@ -40,37 +52,25 @@ class AbstractMaddpgAgent:
     def mk_policy_model(self):
         raise NotImplemented
 
-    def mk_critic_action_gradient(self):
-        self._critic_gradient = K.gradients(self.critic.output, self._action_input)
-
-    def mk_policy_jacobian(self):
-        self._policy_jacobian = jacobian(self.policy.output, self.policy.trainable_weights)
-
     def mk_policy_opt(self):
-        self.mk_critic_action_gradient()
-        self.mk_policy_jacobian()
+        q_i = self.critic([t if i == self.agent_id + self.nb_agent else self.policy.output
+                           for i, t in enumerate(self.critic.inputs)])
 
-        gradJ = tf.reduce_mean(self._policy_jacobian * self._critic_gradient)
+        grad = tf.gradients(q_i, self.policy.trainable_weights)
 
-        update_ops = []
-        for i,w in enumerate(self.policy.trainable_weights):
-            update_ops.append(w + self.learning_rate * gradJ[i])
+        optimizer = tf.train.AdamOptimizer(-self.learning_rate)
 
-        self.policy_opti_ops = update_ops
-
-
-    def critic_action_gradient(self, s, a):
-        s = K.get_session()
-        return s.run([self._critic_gradient], feed_dict={self._state_input: s, self._action_input: a})[0]
-
-    def policy_jacobian(self):
-        s = K.get_session()
-        return s.run([self._policy_jacobian], feed_dict={self._state_input})[0]
+        self.optimize_policy = optimizer.apply_gradients(zip(grad, self.policy.trainable_weights))
 
     def act(self, observation, exploration=True):
         action = self.policy.predict(observation)[0]
 
         return action + self.random_distrib() if exploration else action
+
+    def target_action(self, observation):
+        action = self.policy.predict(observation)[0]
+
+        return action
 
     def Q(self, state, actions):
         raise NotImplemented
@@ -105,7 +105,7 @@ class ReplayBuffer:
 
 
 class AbstractMaddpgTrainer:
-    def __init__(self, env, nb_agent=3, agent_class = None, memory_size=1000, batch_size=32, gamma=0.95, horizon=None):
+    def __init__(self, env, nb_agent=3, agent_class=None, memory_size=1000, batch_size=32, gamma=0.95, horizon=None):
         self.gamma = gamma
         self.horizon = horizon
         self.env = env
@@ -136,7 +136,6 @@ class AbstractMaddpgTrainer:
 
                 state = next_state
 
-
     def update_critic(self, sample):
 
         y = [[] for i in range(self.nb_agent)]
@@ -150,23 +149,26 @@ class AbstractMaddpgTrainer:
             for k in range(self.nb_agent):
                 agent = self.agents[k]
                 observation = agent.watch(state, k)
-                action = agent.act(observation)
+                action = agent.target_action(observation)
 
                 actions.append(action)
 
             for i in range(self.nb_agent):
-                y[i].append(rewards[i] + self.gamma * self.agents[i].Q(state, actions))
+                y[i].append(rewards[i] + self.gamma * self.agents[i].Q(next_state, actions))
                 X[i].append(np.asarray([state, actions]))
 
         for i in range(self.nb_agent):
             self.agents[i].critic.train_on_batch(X[i], y[i])
 
+    def update_policies(self, sample):
+        states = [[sample[j][0][i] for j in range(len(sample))]  for i in range(self.nb_agent)]
+        actions = [[sample[j][1][i] for j in range(len(sample))] for i in range(self.nb_agent)]
 
+        for i in range(self.nb_agent):
+            s_in = {self.agents[i].critic.inputs[k]:states[k] for k in range(self.nb_agent)}
+            a_in = {self.agents[i].critic.inputs[k]:actions[k-self.nb_agent]
+                    for k in range(self.nb_agent, 2*self.nb_agent)}
 
-
-
-
-
-
-
+            with K.get_session() as s:
+                _ = s.run([self.agents[i].optimize_policy], feed_dict={**s_in, **a_in})
 
