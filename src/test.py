@@ -41,6 +41,6 @@ Y = np.random.uniform(-5, 5, (10, 100))
 
 
 with K.get_session() as s:
-    j = s.run([j], feed_dict={M.inputs[0]: X1, i2:X2})[0]
+    print(M.predict({M.inputs[0]: X1, M.inputs[0]:X2}))
 
 

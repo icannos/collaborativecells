@@ -33,8 +33,8 @@ class AbstractMaddpgAgent:
 
         self.policy_opti_ops = None
 
-        self.update_target = [tf.assign(t, tau * e + (1-tau) * t)
-                              for t,e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
+        self.update_target = [tf.assign(t, tau * e + (1 - tau) * t)
+                              for t, e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
 
     def critic_inputs(self, stateoraction, agent):
         idx = 0
@@ -73,7 +73,8 @@ class AbstractMaddpgAgent:
         return action
 
     def Q(self, state, actions):
-        raise NotImplemented
+        return self.critic.predict([[state[i]] for i in range(self.nb_agent)] +
+                            [[actions[i]] for i in range(self.nb_agent)])[0]
 
     def watch(self, state, i):
         """
@@ -82,10 +83,10 @@ class AbstractMaddpgAgent:
         :param state: state of the get from the environnment
         :return: observation, what THIS agent sees
         """
-        raise NotImplemented
+        return state[i]
 
     def random_distrib(self):
-        raise NotImplemented
+        return np.random.normal(0, 1, self.action_shapes[self.agent_id])
 
 
 class ReplayBuffer:
@@ -142,7 +143,6 @@ class AbstractMaddpgTrainer:
 
                 self.update_targets()
 
-
     def train_step(self, sample, i):
         y = []
         X = []
@@ -162,7 +162,6 @@ class AbstractMaddpgTrainer:
             y.append(rewards[i] + self.gamma * self.agents[i].Q(next_state, actionsp))
             X.append(np.asarray([state, actions]))
 
-
         self.agents[i].critic.train_on_batch(X, y)
 
         states = [[sample[j][0][l] for j in range(len(sample))] for l in range(self.nb_agent)]
@@ -179,4 +178,3 @@ class AbstractMaddpgTrainer:
         with K.get_session() as s:
             for i in range(self.nb_agent):
                 s.run(self.agents[i].update_target)
-
