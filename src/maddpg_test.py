@@ -33,3 +33,5 @@ env = MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.obser
 
 
 trainer = AbstractMaddpgTrainer(env, 3, [DenseAgent for _ in range(3)])
+
+trainer.train(100, render=True)

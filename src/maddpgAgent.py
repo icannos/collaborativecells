@@ -55,12 +55,12 @@ class AbstractMaddpgAgent:
         self.optimize_policy = optimizer.apply_gradients(zip(grad, self.policy.trainable_weights))
 
     def act(self, observation, exploration=True):
-        action = self.policy.predict(observation)[0]
+        action = self.policy.predict(np.asarray([observation]))[0]
 
         return action + self.random_distrib() if exploration else action
 
     def target_action(self, observation):
-        action = self.policy.predict(observation)[0]
+        action = self.policy.predict(np.asarray([observation]))[0]
 
         return action
 
@@ -112,7 +112,9 @@ class DenseAgent(AbstractMaddpgAgent):
         layer3 = Dense(self.action_shapes[self.agent_id][0], activation="relu")(layer2)
 
         model = Model(inputs=inputs, outputs=layer3)
-        model = model.compile(optimizer="adam", loss="mse")
+        model.compile(optimizer="adam", loss="mse")
+
+        return model
 
     def mk_policy_model(self):
         input_shape = self.observation_shapes[self.agent_id]
@@ -147,19 +149,26 @@ class AbstractMaddpgTrainer:
         for agent in range(nb_agent):
             self.agents.append(agent_class[agent](agent, self.action_dim, self.observation_dim))
 
-    def train(self, episode=1):
+    def train(self, episode=1, render=True):
 
         for _ in range(episode):
             state = self.env.reset()
 
             while True:
-                actions = [self.agents[i].act(state[i]) for i in range(self.nb_agent)]
+                self.env.render()
+
+                actions = []
+                for i in range(self.nb_agent):
+                    actions.append(self.agents[i].act(state[i]))
 
                 next_state, rewards, done, info = self.env.step(actions)
 
                 self.buffer.remember(state, actions, rewards, next_state)
 
                 state = next_state
+
+                if len(self.buffer.memory) < self.buffer.batch_size * 2:
+                    continue
 
                 for i in range(self.nb_agent):
                     sample = self.buffer.sample()
@@ -170,6 +179,17 @@ class AbstractMaddpgTrainer:
     def train_step(self, sample, i):
         y = []
         X = []
+
+        states = [[sample[j][0][l] for j in range(len(sample))] for l in range(self.nb_agent)]
+        actions = [[sample[j][1][l] for j in range(len(sample))] for l in range(self.nb_agent)]
+
+        s_in = {self.agents[i].observations_inputs[k]: states[k] for k in range(self.nb_agent)}
+        a_in = {self.agents[i].actions_inputs[k]: actions[k]
+                for k in range(self.nb_agent)}
+
+        s_in_t = {self.agents[i].observations_inputs[k].name.split(":")[0]: states[k] for k in range(self.nb_agent)}
+        a_in_t = {self.agents[i].actions_inputs[k].name.split(":")[0]: actions[k]
+                for k in range(self.nb_agent)}
 
         for state, actions, rewards, next_state in sample:
 
@@ -184,16 +204,10 @@ class AbstractMaddpgTrainer:
                 actionsp.append(action)
 
             y.append(rewards[i] + self.gamma * self.agents[i].Q(next_state, actionsp))
-            X.append(np.asarray([state, actions]))
 
-        self.agents[i].critic.train_on_batch(X, y)
+        print(self.agents[i].actions_inputs[0].name.split(":")[0])
 
-        states = [[sample[j][0][l] for j in range(len(sample))] for l in range(self.nb_agent)]
-        actions = [[sample[j][1][l] for j in range(len(sample))] for l in range(self.nb_agent)]
-
-        s_in = {self.agents[i].critic.inputs[k]: states[k] for k in range(self.nb_agent)}
-        a_in = {self.agents[i].critic.inputs[k]: actions[k - self.nb_agent]
-                for k in range(self.nb_agent, 2 * self.nb_agent)}
+        self.agents[i].critic.train_on_batch({**s_in, **a_in}, y)
 
         with K.get_session() as s:
             _ = s.run([self.agents[i].optimize_policy], feed_dict={**s_in, **a_in})
