@@ -38,16 +38,6 @@ class AbstractMaddpgAgent:
         self.update_target = [tf.assign(t, tau * e + (1 - tau) * t)
                               for t, e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
 
-    def critic_inputs(self, stateoraction, agent):
-        idx = 0
-
-        if stateoraction == "action":
-            idx += self.nb_agent
-
-        idx += agent
-
-        return self.critic.inputs[idx]
-
     def mk_critic_model(self):
         raise NotImplemented
 
@@ -96,8 +86,6 @@ class ReplayBuffer:
         self.batch_size = batch_size
         self.memory_size = memory_size
 
-        # We store history for each agent
-        # Because their rewards/trajectory are not the same
         self.memory = deque([], maxlen=memory_size)
 
     def sample(self):
