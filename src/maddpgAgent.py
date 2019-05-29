@@ -103,27 +103,27 @@ class DenseAgent(AbstractMaddpgAgent):
 
         inputs = inputs_states + inputs_actions
 
-        flat_actions = Flatten()(inputs_actions)
+        concat = Concatenate()(inputs_states + inputs_actions)
 
-        concat = Concatenate()(inputs_states + flat_actions)
+        print(concat)
 
         layer1 = Dense(128, activation="relu")(concat)
         layer2 = Dense(16, activation="relu")(layer1)
-        layer3 = Dense(self.action_shapes[self.agent_id], activation="relu")(layer2)
+        layer3 = Dense(self.action_shapes[self.agent_id][0], activation="relu")(layer2)
 
         model = Model(inputs=inputs, outputs=layer3)
         model = model.compile(optimizer="adam", loss="mse")
 
     def mk_policy_model(self):
         input_shape = self.observation_shapes[self.agent_id]
-        output_shape = self.action_shapes[self.agent_id]
+        output_shape = self.action_shapes[self.agent_id][0]
 
         model = Sequential()
         model.add(Dense(32, input_shape=input_shape, activation="relu"))
         model.add(Dense(32, activation="relu"))
         model.add(Dense(output_shape, activation="relu"))
 
-        model = Model(inputs=self.agent_id, outputs=model(self.observations_inputs[self.agent_id]))
+        model = Model(inputs=self.observations_inputs[self.agent_id], outputs=model(self.observations_inputs[self.agent_id]))
         model.compile(optimizer="adam", loss="mse")
 
         return model
@@ -138,14 +138,14 @@ class AbstractMaddpgTrainer:
         self.nb_agent = nb_agent
         self.memory_size = memory_size
 
-        self.action_dim = env.action_space
-        self.observation_dim = env.observation_space
+        self.action_dim = [a.shape for a in env.action_space]
+        self.observation_dim = [a.shape for a in env.observation_space]
 
         self.buffer = ReplayBuffer(memory_size=memory_size, batch_size=batch_size)
 
         self.agents = []
         for agent in range(nb_agent):
-            self.agents.append(agent_class[agent](self.action_dim, self.observation_dim))
+            self.agents.append(agent_class[agent](agent, self.action_dim, self.observation_dim))
 
     def train(self, episode=1):
 

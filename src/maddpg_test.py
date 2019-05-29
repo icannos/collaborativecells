@@ -29,6 +29,7 @@ scenario = scenarios.load("simple_adversary" + ".py").Scenario()
 world = scenario.make_world()
 # create multiagent environment
 
-env = MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation)
-env.discrete_action_input = False
+env = MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation, action_space="continuous")
 
+
+trainer = AbstractMaddpgTrainer(env, 3, [DenseAgent for _ in range(3)])
