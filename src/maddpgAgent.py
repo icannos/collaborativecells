@@ -2,9 +2,11 @@ from collections import deque
 from keras import Model
 
 from keras import backend as K
-from tensorflow.python.ops.parallel_for import jacobian
 import tensorflow as tf
 import numpy as np
+
+from keras.models import Model, Sequential
+from keras.layers import Dense, Concatenate, Activation, Input, InputLayer, Flatten
 
 import random
 
@@ -23,6 +25,9 @@ class AbstractMaddpgAgent:
         self.action_shapes = action_shapes
 
         self.nb_agent = len(observation_shapes)
+
+        self.observations_inputs = [Input(shape) for shape in self.observation_shapes]
+        self.actions_inputs = [Input(shape) for shape in self.action_shapes]
 
         self.critic = self.mk_critic_model()
         self.policy = self.mk_policy_model()
@@ -71,7 +76,7 @@ class AbstractMaddpgAgent:
 
     def Q(self, state, actions):
         return self.critic.predict([[state[i]] for i in range(self.nb_agent)] +
-                            [[actions[i]] for i in range(self.nb_agent)])[0]
+                                   [[actions[i]] for i in range(self.nb_agent)])[0]
 
     def watch(self, state, i):
         """
@@ -100,6 +105,40 @@ class ReplayBuffer:
 
     def remember(self, state, action, reward, next_state):
         self.memory.append((state, action, reward, next_state))
+
+
+class DenseAgent(AbstractMaddpgAgent):
+
+    def mk_critic_model(self):
+        inputs_states = self.observations_inputs
+        inputs_actions = self.actions_inputs
+
+        inputs = inputs_states + inputs_actions
+
+        flat_actions = Flatten()(inputs_actions)
+
+        concat = Concatenate()(inputs_states + flat_actions)
+
+        layer1 = Dense(128, activation="relu")(concat)
+        layer2 = Dense(16, activation="relu")(layer1)
+        layer3 = Dense(self.action_shapes[self.agent_id], activation="relu")(layer2)
+
+        model = Model(inputs=inputs, outputs=layer3)
+        model = model.compile(optimizer="adam", loss="mse")
+
+    def mk_policy_model(self):
+        input_shape = self.observation_shapes[self.agent_id]
+        output_shape = self.action_shapes[self.agent_id]
+
+        model = Sequential()
+        model.add(Dense(32, input_shape=input_shape, activation="relu"))
+        model.add(Dense(32, activation="relu"))
+        model.add(Dense(output_shape, activation="relu"))
+
+        model = Model(inputs=self.agent_id, outputs=model(self.observations_inputs[self.agent_id]))
+        model.compile(optimizer="adam", loss="mse")
+
+        return model
 
 
 class AbstractMaddpgTrainer:
