@@ -21,7 +21,6 @@ episodes = 300
 episode_duration = 127
 steps = 16
 
-
 # load scenario from script
 scenario = scenarios.load("simple" + ".py").Scenario()
 # create world

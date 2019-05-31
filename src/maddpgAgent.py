@@ -297,7 +297,6 @@ class AbstractMaddpgTrainer:
         last_train = 0
         for _ in range(episode):
             state = self.env.reset()
-            l_r = np.zeros((self.nb_agent,))
             for d in range(self.horizon):
                 if render:
                     self.env.render()
@@ -308,9 +307,7 @@ class AbstractMaddpgTrainer:
 
                 next_state, rewards, done, info = self.env.step(actions)
 
-                self.buffer.remember(state, actions, rewards-l_r, next_state)
-
-                rewards = l_r
+                self.buffer.remember(state, actions, rewards, next_state)
 
                 state = next_state
 
