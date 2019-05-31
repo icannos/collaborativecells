@@ -53,6 +53,8 @@ class AbstractMaddpgAgent:
         self.actions_inputs = [Input(shape) for shape in self.action_shapes]
 
         self.critic = self.mk_critic_model()
+        self.target_critic = self.mk_critic_model()
+
         self.policy = self.mk_policy_model()
         self.target_policy = self.mk_policy_model()
 
@@ -61,8 +63,13 @@ class AbstractMaddpgAgent:
         self.session = session
         K.set_session(session)
 
-        self.update_target = [tf.assign(t, tau * e + (1 - tau) * t)
-                              for t, e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
+        self.update_policy_target = \
+            [tf.assign(t, tau * e + (1 - tau) * t)
+             for t, e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
+
+        self.update_critic_target = \
+            [tf.assign(t, tau * e + (1 - tau) * t)
+             for t, e in zip(self.target_critic.trainable_weights, self.critic.trainable_weights)]
 
     def mk_critic_model(self):
         """
@@ -135,19 +142,24 @@ class AbstractMaddpgAgent:
         :param observation: observation for this agent
         :return: action vector
         """
-        action = self.policy.predict(np.asarray([observation]))[0]
+        action = self.target_policy.predict(np.asarray([observation]))[0]
 
         return action
 
-    def Q(self, state, actions):
+    def Q(self, state, actions, model="eval"):
         """
         Make a call to the critic to evaluate an action according to the observations and action from other
         :param state: list of observation (observation for each agent)
         :param actions: list of actions (action for each agent)
         :return: real: the evaluation
         """
-        return self.critic.predict([[state[i]] for i in range(self.nb_agent)] +
+        if model == "eval":
+            return self.critic.predict([[state[i]] for i in range(self.nb_agent)] +
                                    [[actions[i]] for i in range(self.nb_agent)])[0][0]
+        else:
+            return self.target_critic.predict([[state[i]] for i in range(self.nb_agent)] +
+                                       [[actions[i]] for i in range(self.nb_agent)])[0][0]
+
 
     def watch(self, state, i):
         """
@@ -243,7 +255,7 @@ class AbstractMaddpgTrainer:
     This class aims to encapsulate the training process of a pool of agents.
     """
     def __init__(self, session, env, nb_agent=3, agent_class=None, memory_size=10**6, batch_size=1024, gamma=0.95,
-                 horizon=None):
+                 horizon=500):
         """
 
         :param session: A tensorflow session to do the computations
@@ -348,7 +360,7 @@ class AbstractMaddpgTrainer:
 
                 actionsp.append(action)
 
-            yj = rewards[i] + self.gamma * self.agents[i].Q(next_state, actionsp)
+            yj = rewards[i] + self.gamma * self.agents[i].Q(next_state, actionsp, "target")
             y.append(yj)
 
         self.agents[i].critic.train_on_batch({**s_in_t, **a_in_t}, y)
@@ -361,4 +373,4 @@ class AbstractMaddpgTrainer:
         :return:
         """
         for i in range(self.nb_agent):
-            self.session.run(self.agents[i].update_target)
+            self.session.run(self.agents[i].update_policy_target + self.agents[i].update_critic_target)
