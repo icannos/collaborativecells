@@ -15,7 +15,7 @@ from keras.models import load_model
 from time import sleep
 
 # load scenario from script
-scenario = scenarios.load("simple_adversary" + ".py").Scenario()
+scenario = scenarios.load("simple" + ".py").Scenario()
 # create world
 world = scenario.make_world()
 # create multiagent environment

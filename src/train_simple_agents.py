@@ -22,7 +22,7 @@ steps = 16
 
 
 # load scenario from script
-scenario = scenarios.load("simple_adversary" + ".py").Scenario()
+scenario = scenarios.load("simple" + ".py").Scenario()
 # create world
 world = scenario.make_world()
 # create multiagent environment
@@ -49,7 +49,7 @@ for i in range(episodes):
     seq_n = [[] for i in range(nb_agent)]
 
     state_n = [np.reshape(state_n[i], (1, observation_space_n[i].shape[0])) for i in range(nb_agent)]
-
+    last_reward = np.zeros(nb_agent)
     while True:
         if step > episode_duration:
             for i in range(nb_agent):
@@ -71,13 +71,11 @@ for i in range(episodes):
 
         next_state_n, reward_n, done, info = env.step(action_n)
 
-        reward_n = [10 if r > -1 else r for r in reward_n]
-
         next_state_n = [np.reshape(next_state_n[i], (1, observation_space_n[i].shape[0])) for i in range(nb_agent)]
 
         for i in range(nb_agent):
             if len(seq_n[i]) < steps:
-                seq_n[i].append((state_n[i], seq_action_n[i], reward_n[i], next_state_n[i], done[i]))
+                seq_n[i].append((state_n[i], seq_action_n[i], -last_reward[i] + reward_n[i], next_state_n[i], done[i]))
 
             else:
                 print("================== TRAIN ===============")
@@ -88,7 +86,10 @@ for i in range(episodes):
         step+=1
 
         state_n = next_state_n
+        print(-last_reward[i] + reward_n[i])
+        last_reward = reward_n
         print(reward_n)
+
 
 
 for i, a in enumerate(agents):

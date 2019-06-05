@@ -7,6 +7,7 @@ import numpy as np
 
 from keras.models import Model, Sequential
 from keras.layers import Dense, Concatenate, Activation, Input, InputLayer, Flatten
+from keras.initializers import glorot_normal, lecun_normal, lecun_uniform
 from keras.regularizers import l1
 
 import random
@@ -108,7 +109,7 @@ class AbstractMaddpgAgent:
 
         grad = tf.gradients(q_i, self.policy.trainable_weights)
 
-        optimizer = tf.train.AdamOptimizer(-self.learning_rate)
+        optimizer = tf.train.AdamOptimizer(self.learning_rate)
 
         return optimizer.apply_gradients(zip(grad, self.policy.trainable_weights))
 
@@ -160,7 +161,6 @@ class AbstractMaddpgAgent:
             return self.target_critic.predict([[state[i]] for i in range(self.nb_agent)] +
                                        [[actions[i]] for i in range(self.nb_agent)])[0][0]
 
-
     def watch(self, state, i):
         """
         Take a state and return an observation, ie what this agent actually sees. By default, just returns the ith
@@ -175,7 +175,7 @@ class AbstractMaddpgAgent:
         This is used for exploration, it should generates a perturbation to add to the action vector
         :return: vector of the same shape as the action vector
         """
-        return np.random.normal(0, 0.1, self.action_shapes[self.agent_id])
+        return np.random.normal(0, 0.01, self.action_shapes[self.agent_id])
 
 
 class ReplayBuffer:
@@ -226,9 +226,9 @@ class DenseAgent(AbstractMaddpgAgent):
 
         concat = Concatenate()(inputs_states + inputs_actions)
 
-        layer1 = Dense(128, activation="relu")(concat)
-        layer2 = Dense(128, activation="relu")(layer1)
-        layer3 = Dense(1, activation="relu")(layer2)
+        layer1 = Dense(64, activation="relu", kernel_initializer=lecun_normal())(concat)
+        layer2 = Dense(16, activation="relu", kernel_initializer=lecun_normal())(layer1)
+        layer3 = Dense(1, activation="relu", kernel_initializer=lecun_normal())(layer2)
 
         model = Model(inputs=inputs, outputs=layer3)
         model.compile(optimizer="adam", loss="mse")
@@ -240,9 +240,8 @@ class DenseAgent(AbstractMaddpgAgent):
         output_shape = self.action_shapes[self.agent_id][0]
 
         model = Sequential()
-        model.add(Dense(128, input_shape=input_shape, activation="relu"))
-        model.add(Dense(256, activation="relu"))
-        model.add(Dense(output_shape, activation="relu", activity_regularizer=l1(0.01)))
+        model.add(Dense(32, input_shape=input_shape, activation="relu", kernel_initializer=lecun_normal()))
+        model.add(Dense(output_shape, activation="tanh", kernel_initializer=lecun_normal()))
 
         model = Model(inputs=self.observations_inputs[self.agent_id], outputs=model(self.observations_inputs[self.agent_id]))
         model.compile(optimizer="adam", loss="mse")
@@ -255,7 +254,7 @@ class AbstractMaddpgTrainer:
     This class aims to encapsulate the training process of a pool of agents.
     """
     def __init__(self, session, env, nb_agent=3, agent_class=None, memory_size=10**6, batch_size=1024, gamma=0.95,
-                 horizon=500):
+                 horizon=100):
         """
 
         :param session: A tensorflow session to do the computations
@@ -295,6 +294,7 @@ class AbstractMaddpgTrainer:
         :return: None
         """
         last_train = 0
+        last_reward = np.zeros(self.nb_agent)
         for _ in range(episode):
             state = self.env.reset()
             for d in range(self.horizon):
@@ -307,8 +307,9 @@ class AbstractMaddpgTrainer:
 
                 next_state, rewards, done, info = self.env.step(actions)
 
-                self.buffer.remember(state, actions, rewards, next_state)
+                rewards = np.array(rewards)
 
+                self.buffer.remember(state, actions, rewards, next_state)
                 state = next_state
 
                 if len(self.buffer.memory) < self.buffer.batch_size * 2 or last_train < 100:
@@ -322,8 +323,6 @@ class AbstractMaddpgTrainer:
                     self.agents[i].exploration_rate *= self.agents[i].exploration_decay
 
                 self.update_targets()
-
-
 
     def train_step(self, sample, i):
         """
@@ -360,7 +359,7 @@ class AbstractMaddpgTrainer:
             yj = rewards[i] + self.gamma * self.agents[i].Q(next_state, actionsp, "target")
             y.append(yj)
 
-        self.agents[i].critic.train_on_batch({**s_in_t, **a_in_t}, y)
+        self.agents[i].critic.fit({**s_in_t, **a_in_t}, y)
 
         _ = self.session.run([self.agents[i].optimize_policy], feed_dict={**s_in, **a_in})
 

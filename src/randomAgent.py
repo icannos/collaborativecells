@@ -33,7 +33,7 @@ while True:
         for i in range(len(observation_n)):
             action_n.append(action_space_n[i].sample())
 
-        observation_n, reward_n, done, info = env.step(action_n)
+        #observation_n, reward_n, done, info = env.step(action_n)
 
 
 

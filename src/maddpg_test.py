@@ -17,7 +17,7 @@ from dqlAgents import simpleAgent
 
 from time import time
 
-episodes = 300
+episodes = 1000
 episode_duration = 127
 steps = 16
 
@@ -33,4 +33,4 @@ session = tf.Session()
 
 trainer = AbstractMaddpgTrainer(session, env, 1, [DenseAgent for _ in range(1)])
 
-trainer.train(1000, render=True)
+trainer.train(10000, render=True)
