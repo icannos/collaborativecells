@@ -39,7 +39,7 @@ class AbstractMaddpgAgent:
         if len(observation_shapes) != len(action_shapes):
             raise ValueError
 
-        self.exploration_rate = 0.5
+        self.exploration_rate = 0.1
         self.exploration_decay = 0.99
 
         self.agent_id = agent_id
@@ -109,7 +109,7 @@ class AbstractMaddpgAgent:
 
         grad = tf.gradients(q_i, self.policy.trainable_weights)
 
-        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        optimizer = tf.train.AdamOptimizer(-self.learning_rate)
 
         return optimizer.apply_gradients(zip(grad, self.policy.trainable_weights))
 
@@ -156,10 +156,10 @@ class AbstractMaddpgAgent:
         """
         if model == "eval":
             return self.critic.predict([[state[i]] for i in range(self.nb_agent)] +
-                                   [[actions[i]] for i in range(self.nb_agent)])[0][0]
+                                       [[actions[i]] for i in range(self.nb_agent)])[0][0]
         else:
             return self.target_critic.predict([[state[i]] for i in range(self.nb_agent)] +
-                                       [[actions[i]] for i in range(self.nb_agent)])[0][0]
+                                              [[actions[i]] for i in range(self.nb_agent)])[0][0]
 
     def watch(self, state, i):
         """
@@ -182,6 +182,7 @@ class ReplayBuffer:
     """
     Simple class to implement the replay buffer.
     """
+
     def __init__(self, memory_size, batch_size):
         """
 
@@ -227,8 +228,8 @@ class DenseAgent(AbstractMaddpgAgent):
         concat = Concatenate()(inputs_states + inputs_actions)
 
         layer1 = Dense(64, activation="relu", kernel_initializer=lecun_normal())(concat)
-        layer2 = Dense(16, activation="relu", kernel_initializer=lecun_normal())(layer1)
-        layer3 = Dense(1, activation="relu", kernel_initializer=lecun_normal())(layer2)
+        layer2 = Dense(16, activation="tanh", kernel_initializer=lecun_normal())(layer1)
+        layer3 = Dense(1, activation="linear", kernel_initializer=lecun_normal())(layer2)
 
         model = Model(inputs=inputs, outputs=layer3)
         model.compile(optimizer="adam", loss="mse")
@@ -243,7 +244,8 @@ class DenseAgent(AbstractMaddpgAgent):
         model.add(Dense(32, input_shape=input_shape, activation="relu", kernel_initializer=lecun_normal()))
         model.add(Dense(output_shape, activation="tanh", kernel_initializer=lecun_normal()))
 
-        model = Model(inputs=self.observations_inputs[self.agent_id], outputs=model(self.observations_inputs[self.agent_id]))
+        model = Model(inputs=self.observations_inputs[self.agent_id],
+                      outputs=model(self.observations_inputs[self.agent_id]))
         model.compile(optimizer="adam", loss="mse")
 
         return model
@@ -253,7 +255,8 @@ class AbstractMaddpgTrainer:
     """
     This class aims to encapsulate the training process of a pool of agents.
     """
-    def __init__(self, session, env, nb_agent=3, agent_class=None, memory_size=10**6, batch_size=1024, gamma=0.95,
+
+    def __init__(self, session, env, nb_agent=3, agent_class=None, memory_size=10 ** 6, batch_size=1024, gamma=0.95,
                  horizon=100):
         """
 
@@ -312,7 +315,7 @@ class AbstractMaddpgTrainer:
                 self.buffer.remember(state, actions, rewards, next_state)
                 state = next_state
 
-                if len(self.buffer.memory) < self.buffer.batch_size * 2 or last_train < 100:
+                if len(self.buffer.memory) < self.buffer.batch_size or last_train < 300:
                     last_train += 1
                     continue
 
@@ -340,9 +343,10 @@ class AbstractMaddpgTrainer:
         a_in = {self.agents[i].actions_inputs[k]: actions[k]
                 for k in range(self.nb_agent)}
 
-        s_in_t = {self.agents[i].observations_inputs[k].name.split(":")[0]: np.asarray(states[k]) for k in range(self.nb_agent)}
+        s_in_t = {self.agents[i].observations_inputs[k].name.split(":")[0]: np.asarray(states[k]) for k in
+                  range(self.nb_agent)}
         a_in_t = {self.agents[i].actions_inputs[k].name.split(":")[0]: np.array(actions[k])
-                for k in range(self.nb_agent)}
+                  for k in range(self.nb_agent)}
 
         for state, actions, rewards, next_state in sample:
 
@@ -368,5 +372,7 @@ class AbstractMaddpgTrainer:
         Make a training step of the target model according to target = tau * e + (1-tau) * target
         :return:
         """
+
+        # For each agent, update policy target and critic target using dedicated operations
         for i in range(self.nb_agent):
             self.session.run(self.agents[i].update_policy_target + self.agents[i].update_critic_target)
