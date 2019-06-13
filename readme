@@ -1,0 +1,6 @@
+ 
+
+## Collaborative cells
+
+At the moment you can only use `src/maddpg_test.py` as it is to test the convergence of one agent trying to stay as
+close as possible to the marker. However the training is not stable at all.

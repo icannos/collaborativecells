@@ -39,7 +39,7 @@ class AbstractMaddpgAgent:
         if len(observation_shapes) != len(action_shapes):
             raise ValueError
 
-        self.exploration_rate = 0.1
+        self.exploration_rate = 0.01
         self.exploration_decay = 0.99
 
         self.agent_id = agent_id
@@ -256,7 +256,7 @@ class AbstractMaddpgTrainer:
     This class aims to encapsulate the training process of a pool of agents.
     """
 
-    def __init__(self, session, env, nb_agent=3, agent_class=None, memory_size=10 ** 6, batch_size=1024, gamma=0.95,
+    def __init__(self, session, env, nb_agent=3, agent_class=None, memory_size=10 ** 6, batch_size=2048, gamma=0.8,
                  horizon=100):
         """
 
@@ -312,10 +312,11 @@ class AbstractMaddpgTrainer:
 
                 rewards = np.array(rewards)
 
-                self.buffer.remember(state, actions, rewards, next_state)
+                self.buffer.remember(state, actions, np.array(rewards) - last_reward, next_state)
                 state = next_state
+                last_reward = np.array(rewards)
 
-                if len(self.buffer.memory) < self.buffer.batch_size or last_train < 300:
+                if len(self.buffer.memory) < self.buffer.batch_size or last_train < 500:
                     last_train += 1
                     continue
 
