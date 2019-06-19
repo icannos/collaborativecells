@@ -7,7 +7,7 @@ import numpy as np
 import tensorflow as tf
 
 from multiagent.environment import MultiAgentEnv
-from maddpgAgentv2 import DenseAgent, AbstractMaddpgTrainer
+from maddpgAgent import DenseAgent, AbstractMaddpgTrainer
 
 
 import multiagent.scenarios as scenarios
@@ -21,7 +21,7 @@ episode_duration = 127
 steps = 16
 
 # load scenario from script
-scenario = scenarios.load("simple" + ".py").Scenario()
+scenario = scenarios.load("simple_spread" + ".py").Scenario()
 # create world
 world = scenario.make_world()
 # create multiagent environment

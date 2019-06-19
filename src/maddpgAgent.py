@@ -25,7 +25,7 @@ class AbstractMaddpgAgent:
 
     """
 
-    def __init__(self, session, agent_id, action_shapes, observation_shapes, learning_rate=0.01, tau=0.01):
+    def __init__(self, session, scope, agent_id, action_shapes, observation_shapes, learning_rate=0.01, tau=0.01):
         """
 
         :param session: A tensorflow session used to run the models and train them
@@ -39,8 +39,8 @@ class AbstractMaddpgAgent:
         if len(observation_shapes) != len(action_shapes):
             raise ValueError
 
-        self.exploration_rate = 0.1
-        self.exploration_decay = 0.99
+        self.exploration_rate = 0.2
+        self.exploration_decay = 0.999
 
         self.agent_id = agent_id
         self.learning_rate = learning_rate
@@ -50,36 +50,48 @@ class AbstractMaddpgAgent:
 
         self.nb_agent = len(observation_shapes)
 
-        self.observations_inputs = [Input(shape) for shape in self.observation_shapes]
-        self.actions_inputs = [Input(shape) for shape in self.action_shapes]
+        with tf.variable_scope(scope):
+            self.observations_inputs = [tf.placeholder("float32", (None, *shape)) for shape in self.observation_shapes]
+            self.actions_inputs = [tf.placeholder("float32", (None, *shape)) for shape in self.action_shapes]
 
-        self.critic = self.mk_critic_model()
-        self.target_critic = self.mk_critic_model()
+            self.critic_y = tf.placeholder("float32", (None, 1))
 
-        self.policy = self.mk_policy_model()
-        self.target_policy = self.mk_policy_model()
+            self.policy = self.mk_policy_model(scope="eval_policy", trainable=True)
+            self.target_policy = self.mk_policy_model(scope="target_policy", trainable=True)
 
-        self.optimize_policy = self.mk_policy_opt()
+            self.critic, self.critic_policy, self.critic_loss = self.mk_critic_model(scope="eval_critic", trainable=True)
+            self.target_critic, _, _ = self.mk_critic_model(scope="target_critic", trainable=False)
 
-        self.session = session
-        K.set_session(session)
+            self.critic_weights = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope + "/eval_critic")
+            self.target_critic_weights = \
+                tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope + "/target_critic")
 
-        self.init_policy_targets = [tf.assign(t, e)
-             for t, e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
+            self.policy_weights = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope + "/eval_policy")
+            self.target_policy_weights = \
+                tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=scope + "/target_policy")
 
-        self.init_critic_targets = [tf.assign(t, e)
-                                    for t, e in
-                                    zip(self.target_critic.trainable_weights, self.critic.trainable_weights)]
+            self.optimize_policy = self.mk_policy_opt()
+            self.optimize_critic = self.mk_critic_opt()
 
-        self.update_policy_target = \
-            [tf.assign(t, tau * e + (1 - tau) * t)
-             for t, e in zip(self.target_policy.trainable_weights, self.policy.trainable_weights)]
+            self.session = session
+            K.set_session(session)
 
-        self.update_critic_target = \
-            [tf.assign(t, tau * e + (1 - tau) * t)
-             for t, e in zip(self.target_critic.trainable_weights, self.critic.trainable_weights)]
+            self.init_policy_targets = [tf.assign(t, e)
+                                        for t, e in zip(self.target_policy_weights, self.policy_weights)]
 
-    def mk_critic_model(self):
+            self.init_critic_targets = [tf.assign(t, e)
+                                        for t, e in
+                                        zip(self.target_critic_weights, self.critic_weights)]
+
+            self.update_policy_target = \
+                [tf.assign(t, tau * e + (1 - tau) * t)
+                 for t, e in zip(self.target_policy_weights, self.policy_weights)]
+
+            self.update_critic_target = \
+                [tf.assign(t, tau * e + (1 - tau) * t)
+                 for t, e in zip(self.target_critic_weights, self.critic_weights)]
+
+    def mk_critic_model(self, scope, trainable):
         """
         This class automatically build a list of inputs corresponding to the observations of each agent and to the
         actions of each agent.
@@ -91,7 +103,7 @@ class AbstractMaddpgAgent:
         """
         raise NotImplemented
 
-    def mk_policy_model(self):
+    def mk_policy_model(self, scope, trainable):
         """
         This class automatically build a list of inputs corresponding to the observations of each agent and to the
         actions of each agent.
@@ -102,6 +114,10 @@ class AbstractMaddpgAgent:
         :return: keras model
         """
         raise NotImplemented
+
+    def mk_critic_opt(self):
+        optimizer = tf.train.AdamOptimizer(self.learning_rate)
+        return optimizer.minimize(self.critic_loss)
 
     def mk_policy_opt(self):
         """
@@ -110,17 +126,13 @@ class AbstractMaddpgAgent:
         :return: Tensorflow operation (tensor)
         """
 
-        actions_inputs = [self.actions_inputs[i] if i != self.agent_id else self.policy.output
-                          for i in range(self.nb_agent)]
-        q_i = - self.critic(actions_inputs + self.observations_inputs) + 0.01*tf.norm(self.policy.output)
-
-        grad = tf.gradients(q_i, self.policy.trainable_weights)
+        #grad = tf.gradients(self.critic_policy, self.policy_weights)
 
         optimizer = tf.train.AdamOptimizer(self.learning_rate)
 
-        # return optimizer.apply_gradients(zip(grad, self.policy.trainable_weights))
+        #return optimizer.apply_gradients(zip(grad, self.policy_weights))
 
-        return optimizer.minimize(q_i, var_list=self.policy.trainable_weights)
+        return optimizer.minimize(-self.critic_policy, var_list=self.policy_weights)
 
     def act(self, observation, exploration=True):
         """
@@ -132,7 +144,7 @@ class AbstractMaddpgAgent:
         :param exploration: bool, if true add random perturbation to the decision
         :return: the action vector taken
         """
-        action = self.policy.predict(np.asarray([observation]))[0]
+        action = self.session.run([self.policy], feed_dict={self.observations_inputs[self.agent_id]: observation})[0][0]
 
         return action + self.random_distrib() if exploration else action
 
@@ -142,7 +154,7 @@ class AbstractMaddpgAgent:
         :param observation:
         :return:
         """
-        action = self.policy.predict(np.asarray([observation]))[0]
+        action = self.session.run([self.policy], feed_dict={self.observations_inputs[self.agent_id]: [observation]})[0][0]
 
         return action + np.random.normal(0, self.exploration_rate, self.action_shapes[self.agent_id])
 
@@ -152,7 +164,8 @@ class AbstractMaddpgAgent:
         :param observation: observation for this agent
         :return: action vector
         """
-        action = self.target_policy.predict(np.asarray([observation]))[0]
+        action = self.session.run([self.target_policy],
+                                  feed_dict={self.observations_inputs[self.agent_id]: [observation]})[0][0]
 
         return action
 
@@ -162,13 +175,15 @@ class AbstractMaddpgAgent:
         :param state: list of observation (observation for each agent)
         :param actions: list of actions (action for each agent)
         :return: real: the evaluation
+
         """
+        feed_dict = {**{self.observations_inputs[i]: [state[i]] for i in range(self.nb_agent)},
+                     **{self.actions_inputs[i]: [actions[i]] for i in range(self.nb_agent)}}
+
         if model == "eval":
-            return self.critic.predict([[state[i]] for i in range(self.nb_agent)] +
-                                       [[actions[i]] for i in range(self.nb_agent)])[0][0]
+            return self.session.run([self.critic], feed_dict=feed_dict)[0][0]
         else:
-            return self.target_critic.predict([[state[i]] for i in range(self.nb_agent)] +
-                                              [[actions[i]] for i in range(self.nb_agent)])[0][0]
+            return self.session.run([self.target_critic], feed_dict=feed_dict)[0][0]
 
     def watch(self, state, i):
         """
@@ -228,36 +243,40 @@ class DenseAgent(AbstractMaddpgAgent):
     A very simple agent which only implement 2 Dense models for critic and policy
     """
 
-    def mk_critic_model(self):
-        inputs_states = self.observations_inputs
-        inputs_actions = self.actions_inputs
+    def mk_critic_model(self, scope, trainable):
+        with tf.variable_scope(scope):
+            W = tf.random_normal_initializer(0.0, 0.1)
 
-        inputs = inputs_states + inputs_actions
+            inputs_states = self.observations_inputs
+            inputs_actions = self.actions_inputs
 
-        concat = Concatenate()(inputs_states + inputs_actions)
+            inputs = inputs_states + inputs_actions
 
-        layer1 = Dense(8, activation="relu", kernel_initializer=lecun_uniform())(concat)
-        layer2 = Dense(8, activation="tanh", kernel_initializer=lecun_uniform())(layer1)
-        layer3 = Dense(1, activation="linear", kernel_initializer=lecun_uniform())(layer2)
+            concat_layer = tf.keras.layers.Concatenate()
 
-        model = Model(inputs=inputs, outputs=layer3)
-        model.compile(optimizer="adam", loss="mse")
+            layer1 = tf.keras.layers.Dense(64, activation="relu", trainable=trainable, kernel_initializer=W)
+            layer2 = tf.keras.layers.Dense(8, activation="tanh", trainable=trainable, kernel_initializer=W)
+            layer3 = tf.keras.layers.Dense(1, activation="linear", trainable=trainable, kernel_initializer=W)
 
-        return model
+            score = layer3(layer2(layer1(concat_layer(inputs_states + inputs_actions))))
 
-    def mk_policy_model(self):
-        input_shape = self.observation_shapes[self.agent_id]
-        output_shape = self.action_shapes[self.agent_id][0]
+            score_policy = layer3(layer2(layer1(concat_layer(inputs_states +
+                                                             [inputs_actions[i] if i != self.agent_id else self.policy
+                                                              for i in range(self.nb_agent)]))))
 
-        model = Sequential()
-        model.add(Dense(32, input_shape=input_shape, activation="relu", kernel_initializer=lecun_uniform()))
-        model.add(Dense(output_shape, activation="tanh", kernel_initializer=lecun_uniform()))
+            loss = tf.reduce_mean(tf.pow(score - self.critic_y, 2))
 
-        model = Model(inputs=self.observations_inputs[self.agent_id],
-                      outputs=model(self.observations_inputs[self.agent_id]))
-        model.compile(optimizer="adam", loss="mse")
+        return score, score_policy, loss
 
-        return model
+    def mk_policy_model(self, scope, trainable):
+        with tf.variable_scope(scope):
+            W = tf.random_normal_initializer(0.0, 0.1)
+            output_shape = self.action_shapes[self.agent_id][0]
+            layer1 = tf.keras.layers.Dense(32, activation="relu", kernel_initializer=W)(self.observations_inputs[self.agent_id])
+
+            actions = tf.keras.layers.Dense(output_shape, activation="tanh", kernel_initializer=W)(layer1)
+
+            return actions
 
 
 class AbstractMaddpgTrainer:
@@ -265,8 +284,9 @@ class AbstractMaddpgTrainer:
     This class aims to encapsulate the training process of a pool of agents.
     """
 
-    def __init__(self, session, env, nb_agent=3, agent_class=None, memory_size=10 ** 6, batch_size=64, gamma=0.95,
-                 horizon=100):
+    def __init__(self, session, scope, env, nb_agent=3, agent_class=None, memory_size=10 ** 6, batch_size=2048,
+                 gamma=0.9,
+                 horizon=200):
         """
 
         :param session: A tensorflow session to do the computations
@@ -294,12 +314,11 @@ class AbstractMaddpgTrainer:
         self.session = session
         K.set_session(session)
 
-        init_op = tf.global_variables_initializer()
-
         self.agents = []
         for agent in range(nb_agent):
-            self.agents.append(agent_class[agent](session, agent, self.action_dim, self.observation_dim))
+            self.agents.append(agent_class[agent](session,scope + f"/agent{agent}", agent, self.action_dim, self.observation_dim))
 
+        init_op = tf.global_variables_initializer()
         self.session.run([init_op])
 
         for agent in range(nb_agent):
@@ -314,7 +333,6 @@ class AbstractMaddpgTrainer:
         :return: None
         """
         last_train = 0
-        last_reward = np.zeros(self.nb_agent)
         for _ in range(episode):
             state = self.env.reset()
             for d in range(self.horizon):
@@ -329,12 +347,10 @@ class AbstractMaddpgTrainer:
 
                 rewards = np.array(rewards)
 
-                self.buffer.remember(state, actions, np.array(rewards)-last_reward, next_state)
-                print(np.array(rewards)-last_reward)
+                self.buffer.remember(state, actions, rewards, next_state)
                 state = next_state
-                last_reward = np.array(rewards)
 
-                if len(self.buffer.memory) < self.buffer.batch_size or last_train < 50:
+                if len(self.buffer.memory) < 3*self.buffer.batch_size or last_train < 500:
                     last_train += 1
                     continue
 
@@ -355,17 +371,14 @@ class AbstractMaddpgTrainer:
         """
         y = []
 
+        print(len(self.agents[i].actions_inputs))
+        print(self.nb_agent)
+
         states = [[sample[j][0][l] for j in range(len(sample))] for l in range(self.nb_agent)]
         actions = [[sample[j][1][l] for j in range(len(sample))] for l in range(self.nb_agent)]
 
         s_in = {self.agents[i].observations_inputs[k]: states[k] for k in range(self.nb_agent)}
-        a_in = {self.agents[i].actions_inputs[k]: actions[k]
-                for k in range(self.nb_agent)}
-
-        s_in_t = {self.agents[i].observations_inputs[k].name.split(":")[0]: np.asarray(states[k]) for k in
-                  range(self.nb_agent)}
-        a_in_t = {self.agents[i].actions_inputs[k].name.split(":")[0]: np.array(actions[k])
-                  for k in range(self.nb_agent)}
+        a_in = {self.agents[i].actions_inputs[k]: actions[k] for k in range(self.nb_agent)}
 
         for state, actions, rewards, next_state in sample:
 
@@ -383,7 +396,9 @@ class AbstractMaddpgTrainer:
             y.append(yj)
 
         print("training")
-        self.agents[i].critic.fit({**s_in_t, **a_in_t}, y)
+        print({**s_in, **a_in, self.agents[i].critic_y: y}.keys())
+
+        self.session.run([self.agents[i].optimize_critic], feed_dict={**s_in, **a_in, self.agents[i].critic_y: y})
 
         _ = self.session.run([self.agents[i].optimize_policy], feed_dict={**s_in, **a_in})
 
