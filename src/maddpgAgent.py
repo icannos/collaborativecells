@@ -25,7 +25,7 @@ class AbstractMaddpgAgent:
 
     """
 
-    def __init__(self, session, scope, agent_id, action_shapes, observation_shapes, learning_rate=0.01, tau=0.01):
+    def __init__(self, session, scope, agent_id, action_shapes, observation_shapes, learning_rate=0.001, tau=0.01):
         """
 
         :param session: A tensorflow session used to run the models and train them
@@ -250,8 +250,6 @@ class DenseAgent(AbstractMaddpgAgent):
             inputs_states = self.observations_inputs
             inputs_actions = self.actions_inputs
 
-            inputs = inputs_states + inputs_actions
-
             concat_layer = tf.keras.layers.Concatenate()
 
             layer1 = tf.keras.layers.Dense(64, activation="relu", trainable=trainable, kernel_initializer=W)
@@ -325,7 +323,16 @@ class AbstractMaddpgTrainer:
             self.session.run(self.agents[agent].init_policy_targets)
             self.session.run(self.agents[agent].init_critic_targets)
 
-    def train(self, episode=1, render=True):
+        # Save op
+        self.saver = tf.train.Saver()
+
+    def dump_model(self, path):
+        self.saver.save(self.session, path)
+
+    def restore_model(self, path):
+        self.saver.restore(self.session, path)
+
+    def train(self, episode=1, render=False):
         """
         Perform the training of the agents
         :param episode: number of game to make
@@ -333,10 +340,11 @@ class AbstractMaddpgTrainer:
         :return: None
         """
         last_train = 0
-        for _ in range(episode):
+        for e in range(episode):
             state = self.env.reset()
+            print(e)
             for d in range(self.horizon):
-                if render:
+                if render is not False and e > render:
                     self.env.render()
 
                 actions = []
@@ -350,7 +358,7 @@ class AbstractMaddpgTrainer:
                 self.buffer.remember(state, actions, rewards, next_state)
                 state = next_state
 
-                if len(self.buffer.memory) < 3*self.buffer.batch_size or last_train < 500:
+                if len(self.buffer.memory) < 3*self.buffer.batch_size or last_train < 100:
                     last_train += 1
                     continue
 
@@ -399,6 +407,11 @@ class AbstractMaddpgTrainer:
         print({**s_in, **a_in, self.agents[i].critic_y: y}.keys())
 
         self.session.run([self.agents[i].optimize_critic], feed_dict={**s_in, **a_in, self.agents[i].critic_y: y})
+
+        feed_dict ={self.agents[j].observations_inputs[k]: states[k] for k in range(self.nb_agent) for j in range(self.nb_agent)}
+        actions = self.session.run([self.agents[k].policy for k in range(self.nb_agent)], feed_dict=feed_dict)
+
+        a_in = {self.agents[i].actions_inputs[k]: actions[k] for k in range(self.nb_agent)}
 
         _ = self.session.run([self.agents[i].optimize_policy], feed_dict={**s_in, **a_in})
 
