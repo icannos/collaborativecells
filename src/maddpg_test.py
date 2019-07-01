@@ -8,6 +8,7 @@ import tensorflow as tf
 
 from multiagent.environment import MultiAgentEnv
 from maddpgAgent import DenseAgent, AbstractMaddpgTrainer
+from sys import argv
 
 import multiagent.scenarios as scenarios
 
@@ -31,6 +32,6 @@ session = tf.Session()
 
 trainer = AbstractMaddpgTrainer(session, "trainer", env, 3, [DenseAgent for _ in range(3)])
 
-trainer.train(3, render=False)
+trainer.train(int(argv[1]), render=False)
 
 trainer.dump_model("model.save")
