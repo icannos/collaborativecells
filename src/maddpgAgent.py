@@ -282,7 +282,7 @@ class AbstractMaddpgTrainer:
     This class aims to encapsulate the training process of a pool of agents.
     """
 
-    def __init__(self, session, scope, env, nb_agent=3, agent_class=None, memory_size=10 ** 6, batch_size=2048,
+    def __init__(self, session, scope, env, nb_agent=3, agent_class=None, memory_size=10 ** 6, batch_size=128,
                  gamma=0.9,
                  horizon=200):
         """
@@ -353,7 +353,8 @@ class AbstractMaddpgTrainer:
 
                 next_state, rewards, done, info = self.env.step(actions)
 
-                rewards = np.array(rewards)
+                rewards = - np.exp(-0.1*np.array(rewards))
+                print(rewards)
 
                 self.buffer.remember(state, actions, rewards, next_state)
                 state = next_state
