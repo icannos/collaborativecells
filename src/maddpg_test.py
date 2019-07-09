@@ -32,8 +32,8 @@ session = tf.Session()
 
 trainer = AbstractMaddpgTrainer(session, "trainer", env, 3, [DenseAgent for _ in range(3)])
 
-trainer.restore_model("model.save")
+trainer.restore_model("../pretrained/simple_spread/model2.save")
 
 trainer.train(int(argv[1]), render=1)
 
-trainer.dump_model("model.save")
+trainer.dump_model("../pretrained/simple_spread/model2.save")

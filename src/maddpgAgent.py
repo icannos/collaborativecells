@@ -25,7 +25,7 @@ class AbstractMaddpgAgent:
 
     """
 
-    def __init__(self, session, scope, agent_id, action_shapes, observation_shapes, learning_rate=0.001, tau=0.01):
+    def __init__(self, session, scope, agent_id, action_shapes, observation_shapes, learning_rate=0.005, tau=0.01):
         """
 
         :param session: A tensorflow session used to run the models and train them
@@ -39,7 +39,7 @@ class AbstractMaddpgAgent:
         if len(observation_shapes) != len(action_shapes):
             raise ValueError
 
-        self.exploration_rate = 0.2
+        self.exploration_rate = 0.05
         self.exploration_decay = 0.999
 
         self.agent_id = agent_id
@@ -126,11 +126,7 @@ class AbstractMaddpgAgent:
         :return: Tensorflow operation (tensor)
         """
 
-        #grad = tf.gradients(self.critic_policy, self.policy_weights)
-
         optimizer = tf.train.AdamOptimizer(self.learning_rate)
-
-        #return optimizer.apply_gradients(zip(grad, self.policy_weights))
 
         return optimizer.minimize(-self.critic_policy, var_list=self.policy_weights)
 
@@ -353,8 +349,8 @@ class AbstractMaddpgTrainer:
 
                 next_state, rewards, done, info = self.env.step(actions)
 
-                rewards = - np.exp(-0.1*np.array(rewards))
-                print(rewards)
+                #rewards = - np.exp(-0.1*np.array(rewards)) + 1
+                rewards = np.array(rewards)
 
                 self.buffer.remember(state, actions, rewards, next_state)
                 state = next_state
