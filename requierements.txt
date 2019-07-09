@@ -1,0 +1,5 @@
+keras
+tensorflow==1.13.1
+selenium
+gym==0.10.5
+git+git://github.com/icannos/multiagent-particle-envs@master
